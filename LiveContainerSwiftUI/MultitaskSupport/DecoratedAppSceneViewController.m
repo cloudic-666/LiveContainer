@@ -26,7 +26,8 @@
     
     _dataUUID = dataUUID;
     _scaleRatio = 1.0;
-    _isMaximized = [NSUserDefaults.lcUserDefaults boolForKey:@"LCLaunchMultitaskMaximized"];
+    BOOL fullscreenSwitcher = [MultitaskDockManager isFullscreenSwitcherEnabled];
+    _isMaximized = fullscreenSwitcher || [NSUserDefaults.lcUserDefaults boolForKey:@"LCLaunchMultitaskMaximized"];
     _appSceneVC = [[AppSceneViewController alloc] initWithBundleId:bundleId dataUUID:dataUUID delegate:self];
     self.title = windowName;
     [self setupDecoratedView];
@@ -102,11 +103,17 @@
     frame.origin = CGPointMake(rootViewCenter.x - frame.size.width / 2, rootViewCenter.y - frame.size.height / 2);
     
     if(_isMaximized) {
-        CGRect maxFrame = UIEdgeInsetsInsetRect(self.view.window.frame, self.view.window.safeAreaInsets);
+        UIWindow *targetWindow = self.view.window ?: ((UIWindowScene *)UIApplication.sharedApplication.connectedScenes.anyObject).keyWindow;
+        CGRect windowFrame = targetWindow ? targetWindow.frame : self.view.superview.bounds;
+        UIEdgeInsets insets = targetWindow ? targetWindow.safeAreaInsets : UIEdgeInsetsZero;
+        CGRect maxFrame = UIEdgeInsetsInsetRect(windowFrame, insets);
         // save origin as normalized coordinates
-        frame.origin.x /= maxFrame.size.width;
-        frame.origin.y /= maxFrame.size.height;
+        if (maxFrame.size.width > 0 && maxFrame.size.height > 0) {
+            frame.origin.x /= maxFrame.size.width;
+            frame.origin.y /= maxFrame.size.height;
+        }
         self.originalFrame = frame;
+        self.view.frame = targetWindow ? targetWindow.bounds : self.view.superview.bounds;
     } else {
         self.view.frame = frame;
     }
@@ -119,11 +126,15 @@
     
     self.view.axis = UILayoutConstraintAxisVertical;
     self.view.backgroundColor = UIColor.systemBackgroundColor;
-    self.view.layer.cornerRadius = 10;
+    self.view.layer.cornerRadius = _isMaximized ? 0.0 : 10.0;
     self.view.layer.masksToBounds = YES;
 
     self.navigationBar = navigationBar;
     self.navigationItem = navigationBar.items.firstObject;
+    if (_isMaximized && [MultitaskDockManager isFullscreenSwitcherEnabled]) {
+        self.navigationBar.hidden = YES;
+        self.navigationBar.alpha = 0;
+    }
     if (!self.navigationBar.superview) {
         [self.view addArrangedSubview:self.navigationBar];
     }
@@ -261,6 +272,27 @@
     }];
 }
 
+- (void)hideForSwitcher {
+    if (self.view.hidden) return;
+    [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        self.view.alpha = 0;
+    } completion:^(BOOL finished) {
+        if (!finished) return;
+        self.view.hidden = YES;
+        self.view.alpha = 1;
+        self.view.transform = CGAffineTransformIdentity;
+        [self.view.superview sendSubviewToBack:self.view];
+    }];
+}
+
+- (void)togglePiP {
+    if ([PiPManager.shared isPiPWithVC:self.appSceneVC]) {
+        [PiPManager.shared stopPiP];
+    } else {
+        [PiPManager.shared startPiPWithVC:self.appSceneVC];
+    }
+}
+
 - (void)minimizeWindowPiP {
     [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
         self.view.alpha = 0;
@@ -288,14 +320,18 @@
         CGRect newFrame = CGRectMake(self.originalFrame.origin.x * maxFrame.size.width, self.originalFrame.origin.y * maxFrame.size.height, self.originalFrame.size.width, self.originalFrame.size.height);
         [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
             self.view.frame = newFrame;
+            self.view.layer.cornerRadius = 10.0;
             self.view.layer.borderWidth = 1;
             self.resizeHandle.alpha = 1;
+            self.navigationBar.hidden = NO;
+            self.navigationBar.alpha = 1.0;
             
             [self.appSceneVC updateSettingsWithBlock:updateSettingsBlock];
             
             [self.view layoutIfNeeded];
         } completion:^(BOOL finished) {
             self.isMaximized = NO;
+            [self updateVerticalConstraints];
             UIImage *maximizeImage = [UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right.circle"];
             UIImageConfiguration *maximizeConfig = [UIImageSymbolConfiguration configurationWithPointSize:16.0 weight:UIImageSymbolWeightMedium];
             self.maximizeButton.image = [maximizeImage imageWithConfiguration:maximizeConfig];
@@ -309,6 +345,7 @@
             self.isMaximized = YES;
             [self updateVerticalConstraints];
             
+            self.view.layer.cornerRadius = 0.0;
             self.view.layer.borderWidth = 0;
             self.resizeHandle.alpha = 0;
             
@@ -389,7 +426,8 @@
         } else {
             [self updateWindowedFrameWithSettings:settings];
         }
-        CGRect newFrame = CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - self.navigationBar.frame.size.height/self.scaleRatio);
+        CGFloat effectiveNavHeight = self.navigationBar.hidden ? 0 : (self.navigationBar.frame.size.height / self.scaleRatio);
+        CGRect newFrame = CGRectMake(0, 0, self.view.bounds.size.width, self.view.bounds.size.height - effectiveNavHeight);
         
         if(UIInterfaceOrientationIsLandscape(baseSettings.interfaceOrientation)) {
             settings.frame = CGRectMake(0, 0, newFrame.size.height, newFrame.size.width);
@@ -491,10 +529,11 @@
     [self.view layoutIfNeeded];
     [UIView animateWithDuration:0.3 animations:^{
         BOOL bottomWindowBar = [NSUserDefaults.lcSharedDefaults boolForKey:@"LCMultitaskBottomWindowBar"];
-        BOOL hideWindowBar = MultitaskDockManager.shared.isCollapsed && self.isMaximized;
+        BOOL hideWindowBar = (MultitaskDockManager.shared.isCollapsed || [MultitaskDockManager isFullscreenSwitcherEnabled]) && self.isMaximized;
         CGFloat navBarHeight = hideWindowBar ? 0 : 44;
         self.navigationBar.alpha = hideWindowBar ? 0 : 1;
         self.navigationBar.hidden = hideWindowBar;
+        self.view.layer.cornerRadius = self.isMaximized ? 0.0 : 10.0;
         
         // Update safe area insets
         if(self.isMaximized) {

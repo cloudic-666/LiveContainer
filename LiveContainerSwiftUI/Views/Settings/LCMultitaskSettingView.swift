@@ -19,9 +19,18 @@ struct LCMultitaskSettingView: View {
     @AppStorage("LCDockWidth", store: LCUtils.appGroupUserDefault) var dockWidth: Double = 80
     @AppStorage("LCHideCollapsedDock", store: LCUtils.appGroupUserDefault) var hideCollapsedDock: Bool = false
     @AppStorage("LCRedirectURLToHost", store: LCUtils.appGroupUserDefault) var redirectURLToHost = false
+    @AppStorage("LCFullscreenSwitcherMode", store: LCUtils.appGroupUserDefault) var fullscreenSwitcherMode: Bool = true
     
     var body: some View {
         List {
+            Section {
+                Toggle(isOn: $fullscreenSwitcherMode) {
+                    Text("全屏瞬切模式")
+                }
+            } footer: {
+                Text("开启后默认以无边框全屏启动多任务应用并隐藏窗口标题栏；轻点侧边小胶囊一键切回上一个应用，向内轻滑展开后台切换条，点选后自动隐身。关闭可随时恢复原版小窗模式。")
+            }
+            
             Section {
                 if(UIApplication.shared.supportsMultipleScenes) {
                     Picker(selection: $multitaskMode) {

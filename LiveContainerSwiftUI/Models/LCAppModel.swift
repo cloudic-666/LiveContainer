@@ -157,8 +157,9 @@ class LCAppModel: ObservableObject, Hashable {
     public var shouldLaunchInMultitaskMode : Bool {
         get {
             if #available(iOS 16.0, *) {
+                let defaultMultitask = UserDefaults.standard.bool(forKey: "LCLaunchInMultitaskMode") || MultitaskDockManager.isFullscreenSwitcherEnabled
                 return uiIsMultitaskModeSpecificed == .yes ||
-                (uiIsMultitaskModeSpecificed == .default && UserDefaults.standard.bool(forKey: "LCLaunchInMultitaskMode"))
+                (uiIsMultitaskModeSpecificed == .default && defaultMultitask)
             } else {
                 return false
             }

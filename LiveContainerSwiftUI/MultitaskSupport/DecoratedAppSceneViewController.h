@@ -17,6 +17,10 @@ API_AVAILABLE(ios(16.0))
 - (void)minimizeWindowPiP;
 - (void)unminimizeWindowPiP;
 - (void)updateVerticalConstraints;
+- (void)closeWindow;
+- (void)maximizeWindow;
+- (void)togglePiP;
+- (void)hideForSwitcher;
 @property(nonatomic, copy) void (^pidAvailableHandler)(NSNumber *pid, NSError *error);
 @end
 
